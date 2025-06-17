@@ -14,32 +14,7 @@ import { toast } from "sonner";
 import { fileStorage } from '@/services/fileStorage';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
-
-type OrderFile = {
-  name: string;
-  size: number;
-  type: string;
-  path?: string;
-};
-
-type Order = {
-  orderId: string;
-  fullName: string;
-  phoneNumber: string;
-  printType: string;
-  copies: number;
-  paperSize: string;
-  specialInstructions?: string;
-  files: OrderFile[];
-  orderDate: string;
-  status: string;
-  totalCost: number;
-  printSide: string;
-  selectedPages?: string;
-  colorPages?: string;
-  bwPages?: string;
-  bindingColorType?: string;
-};
+import { OrderService, type Order } from '@/services/orderService';
 
 const OrdersList = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -48,28 +23,25 @@ const OrdersList = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [maxScrollPosition, setMaxScrollPosition] = useState(100);
+  const [loading, setLoading] = useState(true);
   const ordersPerPage = 10;
 
   useEffect(() => {
-    const storedOrders = JSON.parse(localStorage.getItem('xeroxOrders') || '[]');
-    const processedOrders = storedOrders.map((order: Order) => {
-      const processedFiles = order.files.map(file => {
-        if (!file.path) {
-          file.path = `/uploads/${file.name}`;
-        }
-        return file;
-      });
-      
-      return {
-        ...order,
-        files: processedFiles,
-        status: order.status || 'pending'
-      };
-    });
-    
-    setOrders(processedOrders);
-    localStorage.setItem('xeroxOrders', JSON.stringify(processedOrders));
+    loadOrders();
   }, []);
+
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      const fetchedOrders = await OrderService.getAllOrders();
+      setOrders(fetchedOrders);
+    } catch (error) {
+      console.error('Error loading orders:', error);
+      toast.error('Failed to load orders');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Handle scroll position updates
   const handleScrollPositionChange = (value: number[]) => {
@@ -107,19 +79,22 @@ const OrdersList = () => {
     }
   }, [dialogOpen, selectedOrder]);
 
-  const handleStatusChange = (orderId: string, newStatus: string) => {
-    const updatedOrders = orders.map(order => 
-      order.orderId === orderId ? { ...order, status: newStatus } : order
-    );
+  const handleStatusChange = async (orderId: string, newStatus: string) => {
+    const success = await OrderService.updateOrderStatus(orderId, newStatus);
     
-    setOrders(updatedOrders);
-    localStorage.setItem('xeroxOrders', JSON.stringify(updatedOrders));
-    
-    if (selectedOrder?.orderId === orderId) {
-      setSelectedOrder({ ...selectedOrder, status: newStatus });
-    }
+    if (success) {
+      // Update local state
+      const updatedOrders = orders.map(order => 
+        order.orderId === orderId ? { ...order, status: newStatus } : order
+      );
+      setOrders(updatedOrders);
+      
+      if (selectedOrder?.orderId === orderId) {
+        setSelectedOrder({ ...selectedOrder, status: newStatus });
+      }
 
-    toast.success(`Order status updated to ${newStatus}`);
+      toast.success(`Order status updated to ${newStatus}`);
+    }
   };
 
   const viewOrderDetails = (order: Order) => {
@@ -172,7 +147,7 @@ const OrdersList = () => {
     return size?.toUpperCase() || 'N/A';
   };
 
-  const handleFileDownload = (file: OrderFile) => {
+  const handleFileDownload = (file: Order['files'][0]) => {
     try {
       if (!file.path) {
         file.path = `/uploads/${file.name}`;
@@ -245,6 +220,14 @@ const OrdersList = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">Loading orders...</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       {orders.length === 0 ? (
@@ -257,24 +240,24 @@ const OrdersList = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[120px]">Order ID</TableHead>
-                  <TableHead className="min-w-[120px]">Customer</TableHead>
-                  <TableHead className="min-w-[140px]">Date</TableHead>
-                  <TableHead className="min-w-[120px]">Print Type</TableHead>
-                  <TableHead className="min-w-[80px]">Copies</TableHead>
-                  <TableHead className="min-w-[80px]">Cost</TableHead>
-                  <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[120px]">Actions</TableHead>
+                  <TableHead className="min-w-[120px] text-xs sm:text-sm">Order ID</TableHead>
+                  <TableHead className="min-w-[120px] text-xs sm:text-sm">Customer</TableHead>
+                  <TableHead className="min-w-[140px] text-xs sm:text-sm">Date</TableHead>
+                  <TableHead className="min-w-[120px] text-xs sm:text-sm">Print Type</TableHead>
+                  <TableHead className="min-w-[80px] text-xs sm:text-sm">Copies</TableHead>
+                  <TableHead className="min-w-[80px] text-xs sm:text-sm">Cost</TableHead>
+                  <TableHead className="min-w-[100px] text-xs sm:text-sm">Status</TableHead>
+                  <TableHead className="min-w-[120px] text-xs sm:text-sm">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {currentOrders.map((order) => (
                   <TableRow key={order.orderId}>
-                    <TableCell className="font-mono text-xs">{order.orderId}</TableCell>
-                    <TableCell>{order.fullName}</TableCell>
+                    <TableCell className="font-mono text-xs break-all">{order.orderId}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{order.fullName}</TableCell>
                     <TableCell className="text-xs">{formatDate(order.orderDate)}</TableCell>
                     <TableCell className="text-xs">{getPrintTypeName(order.printType)}</TableCell>
-                    <TableCell>{order.copies || 'N/A'}</TableCell>
+                    <TableCell className="text-xs sm:text-sm">{order.copies || 'N/A'}</TableCell>
                     <TableCell className="text-xs">
                       {order.printType === 'customPrint' ? 'Quote Required' : `₹${order.totalCost?.toFixed(2) || '0.00'}`}
                     </TableCell>
@@ -298,7 +281,7 @@ const OrdersList = () => {
           {/* Pagination Controls */}
           {totalPages > 1 && (
             <div className="flex flex-col sm:flex-row items-center justify-between mt-6 gap-4">
-              <div className="text-sm text-gray-500">
+              <div className="text-xs sm:text-sm text-gray-500">
                 Showing {startIndex + 1} to {Math.min(endIndex, orders.length)} of {orders.length} orders
               </div>
               <div className="flex items-center space-x-2">
@@ -307,9 +290,9 @@ const OrdersList = () => {
                   size="sm"
                   onClick={goToPreviousPage}
                   disabled={currentPage === 1}
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 text-xs sm:text-sm"
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden sm:inline">Previous</span>
                 </Button>
                 
@@ -332,7 +315,7 @@ const OrdersList = () => {
                         variant={currentPage === page ? "default" : "outline"}
                         size="sm"
                         onClick={() => goToPage(page)}
-                        className="w-8 h-8 p-0"
+                        className="w-6 h-6 sm:w-8 sm:h-8 p-0 text-xs sm:text-sm"
                       >
                         {page}
                       </Button>
@@ -345,10 +328,10 @@ const OrdersList = () => {
                   size="sm"
                   onClick={goToNextPage}
                   disabled={currentPage === totalPages}
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 text-xs sm:text-sm"
                 >
                   <span className="hidden sm:inline">Next</span>
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
               </div>
             </div>
@@ -358,10 +341,10 @@ const OrdersList = () => {
       
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         {selectedOrder && (
-          <DialogContent className="max-w-4xl h-[90vh] overflow-hidden flex flex-col">
+          <DialogContent className="max-w-4xl h-[90vh] overflow-hidden flex flex-col mx-2 sm:mx-auto">
             <DialogHeader className="flex-shrink-0">
-              <DialogTitle className="text-lg sm:text-xl">Order Details - {selectedOrder.orderId}</DialogTitle>
-              <DialogDescription className="text-sm">
+              <DialogTitle className="text-base sm:text-xl break-all">Order Details - {selectedOrder.orderId}</DialogTitle>
+              <DialogDescription className="text-xs sm:text-sm">
                 Submitted on {formatDate(selectedOrder.orderDate)}
               </DialogDescription>
             </DialogHeader>
@@ -374,11 +357,11 @@ const OrdersList = () => {
                   data-scroll-container
                   onScroll={handleScroll}
                 >
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="space-y-3 sm:space-y-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                       <div>
                         <h3 className="font-medium text-gray-700 text-sm sm:text-base">Customer Information</h3>
-                        <div className="mt-2 space-y-1 text-sm">
+                        <div className="mt-2 space-y-1 text-xs sm:text-sm">
                           <p><span className="font-medium">Name:</span> {selectedOrder.fullName}</p>
                           <p><span className="font-medium">Phone:</span> {selectedOrder.phoneNumber}</p>
                         </div>
@@ -423,18 +406,18 @@ const OrdersList = () => {
                       </div>
                     </div>
                     
-                    <div className="border-t pt-4">
+                    <div className="border-t pt-3 sm:pt-4">
                       <h3 className="font-medium text-gray-700 text-sm sm:text-base">Print Details</h3>
-                      <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                         <div>
                           <p className="text-xs sm:text-sm text-gray-500">Print Type</p>
-                          <p className="text-sm">{getPrintTypeName(selectedOrder.printType)}</p>
+                          <p className="text-xs sm:text-sm">{getPrintTypeName(selectedOrder.printType)}</p>
                           
                           {/* Show binding color type for binding orders */}
                           {(selectedOrder.printType === 'softBinding' || selectedOrder.printType === 'spiralBinding') && selectedOrder.bindingColorType && (
                             <>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Binding Color Type</p>
-                              <p className="text-sm">{getBindingColorTypeName(selectedOrder.bindingColorType)}</p>
+                              <p className="text-xs sm:text-sm">{getBindingColorTypeName(selectedOrder.bindingColorType)}</p>
                             </>
                           )}
                           
@@ -442,9 +425,9 @@ const OrdersList = () => {
                           {selectedOrder.printType === 'custom' && (
                             <>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Color Pages</p>
-                              <p className="text-sm">{selectedOrder.colorPages || 'None'}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.colorPages || 'None'}</p>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">B&W Pages</p>
-                              <p className="text-sm">{selectedOrder.bwPages || 'None'}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.bwPages || 'None'}</p>
                             </>
                           )}
                           
@@ -452,9 +435,9 @@ const OrdersList = () => {
                           {(selectedOrder.printType === 'softBinding' || selectedOrder.printType === 'spiralBinding') && selectedOrder.bindingColorType === 'custom' && (
                             <>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Color Pages (Binding)</p>
-                              <p className="text-sm">{selectedOrder.colorPages || 'None'}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.colorPages || 'None'}</p>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">B&W Pages (Binding)</p>
-                              <p className="text-sm">{selectedOrder.bwPages || 'None'}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.bwPages || 'None'}</p>
                             </>
                           )}
                           
@@ -462,7 +445,7 @@ const OrdersList = () => {
                           {selectedOrder.printType !== 'custom' && selectedOrder.printType !== 'customPrint' && selectedOrder.selectedPages && (
                             <>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Selected Pages</p>
-                              <p className="text-sm">{selectedOrder.selectedPages}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.selectedPages}</p>
                             </>
                           )}
                         </div>
@@ -470,15 +453,15 @@ const OrdersList = () => {
                           {selectedOrder.printType !== 'customPrint' && (
                             <>
                               <p className="text-xs sm:text-sm text-gray-500">Print Side</p>
-                              <p className="text-sm">{selectedOrder.printSide === 'double' ? 'Double Sided' : 'Single Sided'}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.printSide === 'double' ? 'Double Sided' : 'Single Sided'}</p>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Paper Size</p>
-                              <p className="text-sm">{getPaperSizeName(selectedOrder.paperSize)}</p>
+                              <p className="text-xs sm:text-sm">{getPaperSizeName(selectedOrder.paperSize)}</p>
                               <p className="mt-2 text-xs sm:text-sm text-gray-500">Copies</p>
-                              <p className="text-sm">{selectedOrder.copies}</p>
+                              <p className="text-xs sm:text-sm">{selectedOrder.copies}</p>
                             </>
                           )}
                           <p className="mt-2 text-xs sm:text-sm text-gray-500">Total Cost</p>
-                          <p className="font-semibold text-sm">
+                          <p className="font-semibold text-xs sm:text-sm">
                             {selectedOrder.printType === 'customPrint' ? 'Quote Required' : `₹${selectedOrder.totalCost?.toFixed(2) || '0.00'}`}
                           </p>
                         </div>
@@ -486,19 +469,19 @@ const OrdersList = () => {
                     </div>
                     
                     {selectedOrder.specialInstructions && (
-                      <div className="border-t pt-4">
+                      <div className="border-t pt-3 sm:pt-4">
                         <h3 className="font-medium text-gray-700 text-sm sm:text-base">Special Instructions</h3>
-                        <p className="mt-2 text-gray-800 whitespace-pre-line text-sm">{selectedOrder.specialInstructions}</p>
+                        <p className="mt-2 text-gray-800 whitespace-pre-line text-xs sm:text-sm">{selectedOrder.specialInstructions}</p>
                       </div>
                     )}
                     
-                    <div className="border-t pt-4">
+                    <div className="border-t pt-3 sm:pt-4">
                       <h3 className="font-medium text-gray-700 text-sm sm:text-base">Files ({selectedOrder.files.length})</h3>
                       <div className="mt-2 space-y-2">
                         {selectedOrder.files.map((file, index) => (
                           <div key={index} className="file-item flex justify-between items-center p-2 sm:p-3">
                             <div className="flex items-center min-w-0 flex-1">
-                              <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-xerox-600 mr-2 sm:mr-3 flex-shrink-0" />
+                              <FileText className="h-3 w-3 sm:h-5 sm:w-5 text-xerox-600 mr-2 sm:mr-3 flex-shrink-0" />
                               <div className="min-w-0 flex-1">
                                 <p className="text-xs sm:text-sm font-medium truncate">{file.name}</p>
                                 <p className="text-xs text-gray-500">

@@ -25,6 +25,7 @@ import { z } from "zod";
 import FileUploader from './FileUploader';
 import { CheckCircle, Copy, Phone, Mail, Calculator, FileText, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { OrderService } from '@/services/orderService';
 
 const orderSchema = z.object({
   fullName: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -54,6 +55,7 @@ const OrderForm = () => {
   const [isCustomPrint, setIsCustomPrint] = useState(false);
   const [isBindingType, setIsBindingType] = useState(false);
   const [isCustomPrintType, setIsCustomPrintType] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderSchema),
@@ -329,8 +331,64 @@ const OrderForm = () => {
       return;
     }
 
-    // For custom print type, only validate required fields
-    if (data.printType === 'customPrint') {
+    setIsSubmitting(true);
+
+    try {
+      // For custom print type, only validate required fields
+      if (data.printType === 'customPrint') {
+        const orderData = {
+          ...data,
+          files: files.map(file => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            path: `/uploads/${file.name}`,
+          })),
+          orderId: `ORD-${Date.now()}`,
+          orderDate: new Date().toISOString(),
+          status: "pending",
+          totalCost: 0, // No cost calculation for custom print
+          copies: 1, // Default value
+          paperSize: 'a4', // Default value
+          printSide: 'single', // Default value
+          selectedPages: 'all', // Default value
+        };
+
+        const createdOrder = await OrderService.createOrder(orderData);
+        
+        if (createdOrder) {
+          setSubmittedOrderId(createdOrder.orderId);
+          setOrderSubmitted(true);
+
+          showToast({
+            title: "Order submitted successfully!",
+            description: `Your order ID is ${createdOrder.orderId}`,
+          });
+        } else {
+          throw new Error('Failed to create order');
+        }
+        return;
+      }
+
+      // Regular validation for other print types
+      if (data.printType === 'custom' || (isBindingType && data.bindingColorType === 'custom')) {
+        if (!data.colorPages && !data.bwPages) {
+          showToast({
+            title: "Page selection required",
+            description: "Please specify either color or black & white pages.",
+            variant: "destructive",
+          });
+          return;
+        }
+      } else if (!validatePageSelection(data.selectedPages || 'all', totalPages)) {
+        showToast({
+          title: "Invalid page selection",
+          description: "Please check your page selection.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const orderData = {
         ...data,
         files: files.map(file => ({
@@ -342,69 +400,32 @@ const OrderForm = () => {
         orderId: `ORD-${Date.now()}`,
         orderDate: new Date().toISOString(),
         status: "pending",
-        totalCost: 0, // No cost calculation for custom print
-        copies: 1, // Default value
-        paperSize: 'a4', // Default value
-        printSide: 'single', // Default value
-        selectedPages: 'all', // Default value
+        totalCost: calculatedCost,
       };
 
-      const existingOrders = JSON.parse(localStorage.getItem('xeroxOrders') || '[]');
-      localStorage.setItem('xeroxOrders', JSON.stringify([...existingOrders, orderData]));
+      const createdOrder = await OrderService.createOrder(orderData);
+      
+      if (createdOrder) {
+        setSubmittedOrderId(createdOrder.orderId);
+        setOrderSubmitted(true);
 
-      setSubmittedOrderId(orderData.orderId);
-      setOrderSubmitted(true);
-
-      showToast({
-        title: "Order submitted successfully!",
-        description: `Your order ID is ${orderData.orderId}`,
-      });
-      return;
-    }
-
-    // Regular validation for other print types
-    if (data.printType === 'custom' || (isBindingType && data.bindingColorType === 'custom')) {
-      if (!data.colorPages && !data.bwPages) {
         showToast({
-          title: "Page selection required",
-          description: "Please specify either color or black & white pages.",
-          variant: "destructive",
+          title: "Order submitted successfully!",
+          description: `Your order ID is ${createdOrder.orderId}`,
         });
-        return;
+      } else {
+        throw new Error('Failed to create order');
       }
-    } else if (!validatePageSelection(data.selectedPages || 'all', totalPages)) {
+    } catch (error) {
+      console.error('Error submitting order:', error);
       showToast({
-        title: "Invalid page selection",
-        description: "Please check your page selection.",
+        title: "Error submitting order",
+        description: "Please try again later.",
         variant: "destructive",
       });
-      return;
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const orderData = {
-      ...data,
-      files: files.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        path: `/uploads/${file.name}`,
-      })),
-      orderId: `ORD-${Date.now()}`,
-      orderDate: new Date().toISOString(),
-      status: "pending",
-      totalCost: calculatedCost,
-    };
-
-    const existingOrders = JSON.parse(localStorage.getItem('xeroxOrders') || '[]');
-    localStorage.setItem('xeroxOrders', JSON.stringify([...existingOrders, orderData]));
-
-    setSubmittedOrderId(orderData.orderId);
-    setOrderSubmitted(true);
-
-    showToast({
-      title: "Order submitted successfully!",
-      description: `Your order ID is ${orderData.orderId}`,
-    });
   };
 
   const startNewOrder = () => {
@@ -467,87 +488,87 @@ const OrderForm = () => {
 
   if (orderSubmitted) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <Card className="border-green-200 bg-green-50">
-          <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
-              <CheckCircle className="h-12 sm:h-16 w-12 sm:w-16 text-green-500" />
+          <CardHeader className="text-center pb-4">
+            <div className="flex justify-center mb-3 sm:mb-4">
+              <CheckCircle className="h-10 w-10 sm:h-16 sm:w-16 text-green-500" />
             </div>
-            <CardTitle className="text-xl sm:text-2xl text-green-800">Order Submitted Successfully!</CardTitle>
-            <CardDescription className="text-green-700">
+            <CardTitle className="text-lg sm:text-2xl text-green-800">Order Submitted Successfully!</CardTitle>
+            <CardDescription className="text-green-700 text-sm sm:text-base">
               Your print job has been received and will be processed soon.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="bg-white p-4 sm:p-6 rounded-lg border border-green-200">
-              <h3 className="font-semibold text-base sm:text-lg text-gray-800 mb-3 text-center">Your Order ID</h3>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <span className="text-lg sm:text-2xl font-mono font-bold text-xerox-700 select-all break-all text-center">
+          <CardContent className="space-y-4 sm:space-y-6">
+            <div className="bg-white p-3 sm:p-6 rounded-lg border border-green-200">
+              <h3 className="font-semibold text-sm sm:text-lg text-gray-800 mb-2 sm:mb-3 text-center">Your Order ID</h3>
+              <div className="flex flex-col items-center justify-center gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                <span className="text-base sm:text-2xl font-mono font-bold text-xerox-700 select-all break-all text-center px-2">
                   {submittedOrderId}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={copyOrderId}
-                  className="flex items-center gap-2 w-full sm:w-auto"
+                  className="flex items-center gap-2 text-xs sm:text-sm"
                 >
-                  <Copy className="h-4 w-4" />
+                  <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
                   Copy
                 </Button>
               </div>
-              <p className="text-sm text-gray-600 text-center mt-3">
+              <p className="text-xs sm:text-sm text-gray-600 text-center mt-2 sm:mt-3">
                 Save this Order ID to track your order status
               </p>
             </div>
 
             {/* Admin Contact Message */}
-            <div className="bg-blue-50 p-4 sm:p-6 rounded-lg border border-blue-200">
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <Clock className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
-                <h4 className="font-semibold text-blue-900 text-base sm:text-lg">Quick Response Guarantee</h4>
+            <div className="bg-blue-50 p-3 sm:p-6 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                <Clock className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
+                <h4 className="font-semibold text-blue-900 text-sm sm:text-lg">Quick Response Guarantee</h4>
               </div>
-              <p className="text-blue-800 text-center text-base sm:text-lg font-medium">
+              <p className="text-blue-800 text-center text-sm sm:text-lg font-medium">
                 Our Admin Will Contact You Within 10 Minutes
               </p>
-              <p className="text-blue-700 text-center text-sm mt-2">
+              <p className="text-blue-700 text-center text-xs sm:text-sm mt-1 sm:mt-2">
                 We'll call you to confirm your order details and provide pickup information.
               </p>
             </div>
 
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <h4 className="font-medium text-blue-900 mb-3">What's Next?</h4>
-              <ul className="space-y-2 text-sm text-blue-800">
+            <div className="bg-blue-50 p-3 sm:p-4 rounded-lg border border-blue-200">
+              <h4 className="font-medium text-blue-900 mb-2 sm:mb-3 text-sm sm:text-base">What's Next?</h4>
+              <ul className="space-y-1 sm:space-y-2 text-xs sm:text-sm text-blue-800">
                 <li>• We'll process your order and prepare your prints</li>
                 <li>• You can track your order status using the Order ID above</li>
                 <li>• We'll contact you when your order is ready for pickup</li>
               </ul>
             </div>
 
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-medium text-gray-800 mb-3">Contact Information</h4>
-              <div className="space-y-2 text-sm text-gray-600">
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h4 className="font-medium text-gray-800 mb-2 sm:mb-3 text-sm sm:text-base">Contact Information</h4>
+              <div className="space-y-1 sm:space-y-2 text-xs sm:text-sm text-gray-600">
                 <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 flex-shrink-0" />
+                  <Phone className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>+91 6301526803</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 flex-shrink-0" />
+                  <Mail className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span className="break-all">aishwaryaxerox1999@gmail.com</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 pt-4">
+            <div className="flex flex-col gap-2 sm:gap-3 pt-2 sm:pt-4">
               <Button 
                 onClick={startNewOrder}
-                className="flex-1 bg-xerox-600 hover:bg-xerox-700"
+                className="bg-xerox-600 hover:bg-xerox-700 text-sm sm:text-base"
               >
                 Place Another Order
               </Button>
               <Button 
                 variant="outline"
                 onClick={() => window.open('/track', '_blank')}
-                className="flex-1"
+                className="text-sm sm:text-base"
               >
                 Track This Order
               </Button>
@@ -559,9 +580,9 @@ const OrderForm = () => {
   }
 
   return (
-    <div>
+    <div className="space-y-4 sm:space-y-6">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
@@ -569,9 +590,9 @@ const OrderForm = () => {
                 name="fullName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel className="text-sm sm:text-base">Full Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="John Doe" {...field} />
+                      <Input placeholder="John Doe" {...field} className="text-sm sm:text-base" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -583,9 +604,9 @@ const OrderForm = () => {
                 name="phoneNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel className="text-sm sm:text-base">Phone Number</FormLabel>
                     <FormControl>
-                      <Input placeholder="+91 9876543210" {...field} />
+                      <Input placeholder="+91 9876543210" {...field} className="text-sm sm:text-base" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -599,7 +620,7 @@ const OrderForm = () => {
                 name="printType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Print Type</FormLabel>
+                    <FormLabel className="text-sm sm:text-base">Print Type</FormLabel>
                     <Select 
                       onValueChange={(value) => {
                         field.onChange(value);
@@ -610,7 +631,7 @@ const OrderForm = () => {
                       defaultValue={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="text-sm sm:text-base">
                           <SelectValue placeholder="Select print type" />
                         </SelectTrigger>
                       </FormControl>
@@ -635,7 +656,7 @@ const OrderForm = () => {
                   name="bindingColorType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Binding Color Type</FormLabel>
+                      <FormLabel className="text-sm sm:text-base">Binding Color Type</FormLabel>
                       <Select 
                         onValueChange={(value) => {
                           field.onChange(value);
@@ -644,7 +665,7 @@ const OrderForm = () => {
                         defaultValue={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="text-sm sm:text-base">
                             <SelectValue placeholder="Select color type" />
                           </SelectTrigger>
                         </FormControl>
@@ -668,13 +689,13 @@ const OrderForm = () => {
                     name="printSide"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Print Side</FormLabel>
+                        <FormLabel className="text-sm sm:text-base">Print Side</FormLabel>
                         <Select 
                           onValueChange={field.onChange} 
                           defaultValue={field.value}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger className="text-sm sm:text-base">
                               <SelectValue placeholder="Select side" />
                             </SelectTrigger>
                           </FormControl>
@@ -693,11 +714,12 @@ const OrderForm = () => {
                     name="copies"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Number of Copies</FormLabel>
+                        <FormLabel className="text-sm sm:text-base">Number of Copies</FormLabel>
                         <FormControl>
                           <Input 
                             type="number" 
                             min="1"
+                            className="text-sm sm:text-base"
                             {...field}
                             onChange={(e) => {
                               const value = parseInt(e.target.value);
@@ -722,13 +744,13 @@ const OrderForm = () => {
                   name="paperSize"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Paper Size</FormLabel>
+                      <FormLabel className="text-sm sm:text-base">Paper Size</FormLabel>
                       <Select 
                         onValueChange={field.onChange} 
                         defaultValue={field.value}
                       >
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="text-sm sm:text-base">
                             <SelectValue placeholder="Select size" />
                           </SelectTrigger>
                         </FormControl>
@@ -750,10 +772,11 @@ const OrderForm = () => {
                     name="selectedPages"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Page Selection</FormLabel>
+                        <FormLabel className="text-sm sm:text-base">Page Selection</FormLabel>
                         <FormControl>
                           <Input 
                             placeholder="e.g., 1-5, 8, 11-13 or 'all'" 
+                            className="text-sm sm:text-base"
                             {...field}
                             disabled={totalPages === 0}
                             onChange={(e) => {
@@ -764,7 +787,7 @@ const OrderForm = () => {
                             }}
                           />
                         </FormControl>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-xs sm:text-sm text-gray-500">
                           {totalPages > 0 ? `Total pages: ${totalPages}` : 'Upload a file to select pages'}
                         </p>
                         <FormMessage />
@@ -780,10 +803,11 @@ const OrderForm = () => {
                       name="colorPages"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Color Pages</FormLabel>
+                          <FormLabel className="text-sm sm:text-base">Color Pages</FormLabel>
                           <FormControl>
                             <Input 
                               placeholder="e.g., 1-3, 5, 7-9" 
+                              className="text-sm sm:text-base"
                               {...field}
                               disabled={totalPages === 0}
                               onChange={(e) => {
@@ -792,7 +816,7 @@ const OrderForm = () => {
                               }}
                             />
                           </FormControl>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-xs sm:text-sm text-gray-500">
                             Specify pages to print in color
                           </p>
                           <FormMessage />
@@ -805,10 +829,11 @@ const OrderForm = () => {
                       name="bwPages"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Black & White Pages</FormLabel>
+                          <FormLabel className="text-sm sm:text-base">Black & White Pages</FormLabel>
                           <FormControl>
                             <Input 
                               placeholder="e.g., 4, 6, 10-12" 
+                              className="text-sm sm:text-base"
                               {...field}
                               disabled={totalPages === 0}
                               onChange={(e) => {
@@ -817,7 +842,7 @@ const OrderForm = () => {
                               }}
                             />
                           </FormControl>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-xs sm:text-sm text-gray-500">
                             Specify pages to print in black & white
                           </p>
                           <FormMessage />
@@ -834,11 +859,11 @@ const OrderForm = () => {
               name="specialInstructions"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Special Instructions</FormLabel>
+                  <FormLabel className="text-sm sm:text-base">Special Instructions</FormLabel>
                   <FormControl>
                     <Textarea 
                       placeholder="Add any special instructions here..." 
-                      className="min-h-24"
+                      className="min-h-20 sm:min-h-24 text-sm sm:text-base"
                       {...field} 
                     />
                   </FormControl>
@@ -848,8 +873,8 @@ const OrderForm = () => {
             />
           </div>
 
-          <div className="border-t pt-6">
-            <h3 className="text-lg font-medium mb-4">Upload Files</h3>
+          <div className="border-t pt-4 sm:pt-6">
+            <h3 className="text-base sm:text-lg font-medium mb-3 sm:mb-4">Upload Files</h3>
             <FileUploader 
               onFilesChange={handleFilesChange} 
               onPageCountChange={handlePageCountChange}
@@ -857,14 +882,14 @@ const OrderForm = () => {
             />
 
             {files.length > 0 && (
-              <div className="mt-6">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Uploaded Files Preview</h4>
-                <div className="space-y-3">
+              <div className="mt-4 sm:mt-6">
+                <h4 className="text-sm font-medium text-gray-700 mb-2 sm:mb-3">Uploaded Files Preview</h4>
+                <div className="space-y-2 sm:space-y-3">
                   {files.map((file, index) => (
-                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <div key={index} className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-gray-50 rounded-lg">
                       <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-xerox-600 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{file.name}</p>
+                        <p className="text-xs sm:text-sm font-medium truncate">{file.name}</p>
                         <p className="text-xs text-gray-500">
                           {(file.size / 1024 / 1024).toFixed(2)} MB • {file.type}
                         </p>
@@ -879,17 +904,17 @@ const OrderForm = () => {
           {/* Show cost calculation for all types except custom print */}
           {calculatedCost > 0 && !isCustomPrintType && (
             <Card className="bg-xerox-50 border-xerox-200">
-              <CardContent className="pt-6">
+              <CardContent className="pt-4 sm:pt-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Calculator className="h-5 w-5 text-xerox-600" />
-                    <h3 className="font-medium text-xerox-900">Estimated Cost</h3>
+                    <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-xerox-600" />
+                    <h3 className="font-medium text-xerox-900 text-sm sm:text-base">Estimated Cost</h3>
                   </div>
-                  <p className="text-xl sm:text-2xl font-bold text-xerox-700">
+                  <p className="text-lg sm:text-2xl font-bold text-xerox-700">
                     ₹{calculatedCost.toFixed(2)}
                   </p>
                 </div>
-                <div className="mt-2 text-sm text-gray-600">
+                <div className="mt-2 text-xs sm:text-sm text-gray-600">
                   {!isCustomPrint && !isBindingType && (
                     <>
                       <p>• Selected pages: {form.getValues('selectedPages')}</p>
@@ -922,17 +947,17 @@ const OrderForm = () => {
           {/* Show quote required message for custom print */}
           {isCustomPrintType && (
             <Card className="bg-blue-50 border-blue-200">
-              <CardContent className="pt-6">
+              <CardContent className="pt-4 sm:pt-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Calculator className="h-5 w-5 text-blue-600" />
-                    <h3 className="font-medium text-blue-900">Custom Print Order</h3>
+                    <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                    <h3 className="font-medium text-blue-900 text-sm sm:text-base">Custom Print Order</h3>
                   </div>
-                  <p className="text-lg sm:text-xl font-bold text-blue-700">
+                  <p className="text-base sm:text-xl font-bold text-blue-700">
                     Quote Required
                   </p>
                 </div>
-                <div className="mt-2 text-sm text-blue-600">
+                <div className="mt-2 text-xs sm:text-sm text-blue-600">
                   <p>• Our team will review your files and provide a custom quote</p>
                   <p>• We'll contact you within 10 minutes with pricing details</p>
                   <p>• Perfect for complex printing requirements</p>
@@ -944,10 +969,10 @@ const OrderForm = () => {
           <div className="pt-4">
             <Button 
               type="submit" 
-              className="w-full md:w-auto bg-xerox-600 hover:bg-xerox-700"
-              disabled={files.length === 0}
+              className="w-full bg-xerox-600 hover:bg-xerox-700 text-sm sm:text-base"
+              disabled={files.length === 0 || isSubmitting}
             >
-              Submit Order
+              {isSubmitting ? 'Submitting Order...' : 'Submit Order'}
             </Button>
           </div>
         </form>

@@ -1,75 +1,85 @@
-import { supabase, type Order } from '@/lib/supabase'
-import { toast } from 'sonner'
+// Local Storage Order Service
+// Note: localStorage is browser-specific and cannot be shared between different users/devices
+// For shared data, you would need a database solution like Supabase
+
+export interface Order {
+  id?: string
+  orderId: string
+  fullName: string
+  phoneNumber: string
+  printType: string
+  bindingColorType?: string
+  copies?: number
+  paperSize?: string
+  printSide?: string
+  selectedPages?: string
+  colorPages?: string
+  bwPages?: string
+  specialInstructions?: string
+  files: Array<{
+    name: string
+    size: number
+    type: string
+    path?: string
+  }>
+  orderDate: string
+  status: string
+  totalCost?: number
+  createdAt?: string
+  updatedAt?: string
+}
 
 export class OrderService {
-  // Create a new order
-  static async createOrder(orderData: Omit<Order, 'id' | 'created_at' | 'updated_at'>): Promise<Order | null> {
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .insert([orderData])
-        .select()
-        .single()
+  private static readonly STORAGE_KEY = 'xeroxOrders'
 
-      if (error) {
-        console.error('Error creating order:', error)
-        toast.error('Failed to create order. Please try again.')
-        return null
+  // Create a new order
+  static async createOrder(orderData: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>): Promise<Order | null> {
+    try {
+      const order: Order = {
+        ...orderData,
+        id: `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       }
 
-      return data
+      const existingOrders = this.getAllOrdersSync()
+      const updatedOrders = [...existingOrders, order]
+      
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedOrders))
+      
+      return order
     } catch (error) {
       console.error('Error creating order:', error)
-      toast.error('Failed to create order. Please try again.')
       return null
     }
   }
 
-  // Get all orders (for admin)
-  static async getAllOrders(): Promise<Order[]> {
+  // Get all orders synchronously (for immediate UI updates)
+  static getAllOrdersSync(): Order[] {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('order_date', { ascending: false })
-
-      if (error) {
-        console.error('Error fetching orders:', error)
-        toast.error('Failed to fetch orders.')
-        return []
-      }
-
-      return data || []
+      const ordersJson = localStorage.getItem(this.STORAGE_KEY)
+      if (!ordersJson) return []
+      
+      const orders = JSON.parse(ordersJson) as Order[]
+      return orders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
     } catch (error) {
       console.error('Error fetching orders:', error)
-      toast.error('Failed to fetch orders.')
       return []
     }
   }
 
-  // Get order by order_id (for tracking)
+  // Get all orders (async for consistency with API pattern)
+  static async getAllOrders(): Promise<Order[]> {
+    return this.getAllOrdersSync()
+  }
+
+  // Get order by order ID
   static async getOrderById(orderId: string): Promise<Order | null> {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('order_id', orderId)
-        .single()
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No rows returned
-          return null
-        }
-        console.error('Error fetching order:', error)
-        toast.error('Failed to fetch order.')
-        return null
-      }
-
-      return data
+      const orders = this.getAllOrdersSync()
+      return orders.find(order => order.orderId === orderId) || null
     } catch (error) {
       console.error('Error fetching order:', error)
-      toast.error('Failed to fetch order.')
       return null
     }
   }
@@ -77,46 +87,34 @@ export class OrderService {
   // Update order status
   static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ 
-          status,
-          updated_at: new Date().toISOString()
-        })
-        .eq('order_id', orderId)
-
-      if (error) {
-        console.error('Error updating order status:', error)
-        toast.error('Failed to update order status.')
+      const orders = this.getAllOrdersSync()
+      const orderIndex = orders.findIndex(order => order.orderId === orderId)
+      
+      if (orderIndex === -1) {
         return false
       }
 
+      orders[orderIndex] = {
+        ...orders[orderIndex],
+        status,
+        updatedAt: new Date().toISOString()
+      }
+
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(orders))
       return true
     } catch (error) {
       console.error('Error updating order status:', error)
-      toast.error('Failed to update order status.')
       return false
     }
   }
 
-  // Delete all orders (for admin cleanup)
+  // Delete all orders
   static async deleteAllOrders(): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('orders')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000') // Delete all records
-
-      if (error) {
-        console.error('Error deleting orders:', error)
-        toast.error('Failed to delete orders.')
-        return false
-      }
-
+      localStorage.removeItem(this.STORAGE_KEY)
       return true
     } catch (error) {
       console.error('Error deleting orders:', error)
-      toast.error('Failed to delete orders.')
       return false
     }
   }
@@ -124,17 +122,10 @@ export class OrderService {
   // Get orders count by status
   static async getOrdersCountByStatus(): Promise<Record<string, number>> {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('status')
-
-      if (error) {
-        console.error('Error fetching order counts:', error)
-        return {}
-      }
-
+      const orders = this.getAllOrdersSync()
       const counts: Record<string, number> = {}
-      data?.forEach(order => {
+      
+      orders.forEach(order => {
         counts[order.status] = (counts[order.status] || 0) + 1
       })
 
@@ -142,6 +133,24 @@ export class OrderService {
     } catch (error) {
       console.error('Error fetching order counts:', error)
       return {}
+    }
+  }
+
+  // Export orders (for backup/sharing)
+  static exportOrders(): string {
+    const orders = this.getAllOrdersSync()
+    return JSON.stringify(orders, null, 2)
+  }
+
+  // Import orders (for backup/sharing)
+  static importOrders(ordersJson: string): boolean {
+    try {
+      const orders = JSON.parse(ordersJson) as Order[]
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(orders))
+      return true
+    } catch (error) {
+      console.error('Error importing orders:', error)
+      return false
     }
   }
 }

@@ -5,25 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Search, Package, Clock, CheckCircle, Phone, Mail, MapPin } from "lucide-react";
 import { toast } from "sonner";
-
-interface Order {
-  orderId: string;
-  fullName: string;
-  phoneNumber: string;
-  printType: string;
-  copies: number;
-  paperSize: string;
-  specialInstructions?: string;
-  orderDate: string;
-  status: string;
-  files: Array<{ name: string; size: number; type: string; path?: string }>;
-  totalCost: number;
-  printSide: string;
-  selectedPages?: string;
-  colorPages?: string;
-  bwPages?: string;
-  bindingColorType?: string;
-}
+import { OrderService, type Order } from '@/services/orderService';
 
 const TrackOrder = () => {
   const [orderId, setOrderId] = useState('');
@@ -31,7 +13,7 @@ const TrackOrder = () => {
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
-  const handleTrackOrder = () => {
+  const handleTrackOrder = async () => {
     if (!orderId.trim()) {
       toast.error("Please enter an order ID");
       return;
@@ -41,39 +23,36 @@ const TrackOrder = () => {
     setNotFound(false);
     setOrder(null);
 
-    // Simulate loading delay
-    setTimeout(() => {
-      try {
-        const existingOrders = JSON.parse(localStorage.getItem('xeroxOrders') || '[]') as Order[];
-        const foundOrder = existingOrders.find(order => order.orderId === orderId.trim());
-        
-        if (foundOrder) {
-          setOrder(foundOrder);
-          toast.success("Order found!");
-        } else {
-          setNotFound(true);
-          toast.error("Order not found. Please check your order ID.");
-        }
-      } catch (error) {
-        console.error('Error searching for order:', error);
-        toast.error("Error searching for order");
+    try {
+      const foundOrder = await OrderService.getOrderById(orderId.trim());
+      
+      if (foundOrder) {
+        setOrder(foundOrder);
+        toast.success("Order found!");
+      } else {
+        setNotFound(true);
+        toast.error("Order not found. Please check your order ID.");
       }
+    } catch (error) {
+      console.error('Error searching for order:', error);
+      toast.error("Error searching for order");
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Clock className="h-5 w-5 text-yellow-500" />;
+        return <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500" />;
       case 'processing':
-        return <Package className="h-5 w-5 text-blue-500" />;
+        return <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />;
       case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" />;
       case 'cancelled':
-        return <Package className="h-5 w-5 text-red-500" />;
+        return <Package className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />;
       default:
-        return <Clock className="h-5 w-5 text-gray-500" />;
+        return <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />;
     }
   };
 
@@ -115,38 +94,38 @@ const TrackOrder = () => {
 
   return (
     <PageLayout>
-      <div className="py-8 sm:py-12 bg-gray-50">
+      <div className="py-6 sm:py-12 bg-gray-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-8 sm:mb-10">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Track Your Order</h1>
-            <p className="mt-4 text-lg sm:text-xl text-gray-600">
+          <div className="text-center mb-6 sm:mb-10">
+            <h1 className="text-xl sm:text-3xl font-bold text-gray-900">Track Your Order</h1>
+            <p className="mt-2 sm:mt-4 text-base sm:text-xl text-gray-600">
               Enter your order ID to check the status of your print job
             </p>
           </div>
           
-          <Card className="mb-6 sm:mb-8">
+          <Card className="mb-4 sm:mb-8">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
-                <Search className="h-5 w-5" />
+              <CardTitle className="flex items-center gap-2 text-base sm:text-xl">
+                <Search className="h-4 w-4 sm:h-5 sm:w-5" />
                 Order Lookup
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-sm sm:text-base">
                 Enter the order ID you received after placing your order
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <Input
                   placeholder="Enter Order ID (e.g., ORD-1234567890)"
                   value={orderId}
                   onChange={(e) => setOrderId(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleTrackOrder()}
-                  className="flex-1"
+                  className="flex-1 text-sm sm:text-base"
                 />
                 <Button 
                   onClick={handleTrackOrder} 
                   disabled={loading}
-                  className="bg-xerox-600 hover:bg-xerox-700 w-full sm:w-auto"
+                  className="bg-xerox-600 hover:bg-xerox-700 w-full sm:w-auto text-sm sm:text-base"
                 >
                   {loading ? 'Searching...' : 'Track Order'}
                 </Button>
@@ -156,10 +135,10 @@ const TrackOrder = () => {
 
           {notFound && (
             <Card className="border-red-200 bg-red-50">
-              <CardContent className="pt-6">
+              <CardContent className="pt-4 sm:pt-6">
                 <div className="text-center">
-                  <Package className="h-12 w-12 text-red-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-red-800 mb-2">Order Not Found</h3>
+                  <Package className="h-10 w-10 sm:h-12 sm:w-12 text-red-400 mx-auto mb-3 sm:mb-4" />
+                  <h3 className="text-base sm:text-lg font-medium text-red-800 mb-2">Order Not Found</h3>
                   <p className="text-red-600 text-sm sm:text-base">
                     Please check your order ID and try again. If you continue to have issues, 
                     please contact us at +91 6301526803.
@@ -170,30 +149,30 @@ const TrackOrder = () => {
           )}
 
           {order && (
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-xl">
                     {getStatusIcon(order.status)}
                     Order Status: {getStatusText(order.status)}
                   </CardTitle>
-                  <CardDescription className="break-all">
+                  <CardDescription className="break-all text-sm sm:text-base">
                     Order ID: {order.orderId}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                     <div>
-                      <h4 className="font-medium text-gray-900 mb-3">Customer Details</h4>
-                      <div className="space-y-2 text-sm">
+                      <h4 className="font-medium text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Customer Details</h4>
+                      <div className="space-y-1 sm:space-y-2 text-xs sm:text-sm">
                         <p><span className="font-medium">Name:</span> {order.fullName}</p>
                         <p><span className="font-medium">Phone:</span> {order.phoneNumber}</p>
                         <p><span className="font-medium">Order Date:</span> {new Date(order.orderDate).toLocaleDateString()}</p>
                       </div>
                     </div>
                     <div>
-                      <h4 className="font-medium text-gray-900 mb-3">Print Details</h4>
-                      <div className="space-y-2 text-sm">
+                      <h4 className="font-medium text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">Print Details</h4>
+                      <div className="space-y-1 sm:space-y-2 text-xs sm:text-sm">
                         <p><span className="font-medium">Print Type:</span> {getPrintTypeName(order.printType)}</p>
                         
                         {/* Show binding color type for binding orders */}
@@ -219,9 +198,9 @@ const TrackOrder = () => {
                   
                   {/* Show page details for applicable order types */}
                   {order.printType !== 'customPrint' && (
-                    <div className="mt-4 pt-4 border-t">
-                      <h4 className="font-medium text-gray-900 mb-2">Page Details</h4>
-                      <div className="text-sm text-gray-600">
+                    <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t">
+                      <h4 className="font-medium text-gray-900 mb-2 text-sm sm:text-base">Page Details</h4>
+                      <div className="text-xs sm:text-sm text-gray-600">
                         {order.printType === 'custom' || (order.bindingColorType === 'custom') ? (
                           <>
                             {order.colorPages && <p><span className="font-medium">Color Pages:</span> {order.colorPages}</p>}
@@ -235,9 +214,9 @@ const TrackOrder = () => {
                   )}
                   
                   {order.specialInstructions && (
-                    <div className="mt-4 pt-4 border-t">
-                      <h4 className="font-medium text-gray-900 mb-2">Special Instructions</h4>
-                      <p className="text-sm text-gray-600">{order.specialInstructions}</p>
+                    <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t">
+                      <h4 className="font-medium text-gray-900 mb-2 text-sm sm:text-base">Special Instructions</h4>
+                      <p className="text-xs sm:text-sm text-gray-600">{order.specialInstructions}</p>
                     </div>
                   )}
                 </CardContent>
@@ -245,14 +224,14 @@ const TrackOrder = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Files to Print</CardTitle>
+                  <CardTitle className="text-base sm:text-lg">Files to Print</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
                     {order.files.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                      <div key={index} className="flex items-center justify-between p-2 sm:p-3 bg-gray-50 rounded-md">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{file.name}</p>
+                          <p className="text-xs sm:text-sm font-medium truncate">{file.name}</p>
                           <p className="text-xs text-gray-500">
                             {(file.size / 1024).toFixed(2)} KB
                           </p>
@@ -264,15 +243,15 @@ const TrackOrder = () => {
               </Card>
 
               <Card className="bg-blue-50 border-blue-200">
-                <CardContent className="pt-6">
+                <CardContent className="pt-4 sm:pt-6">
                   <div className="text-center">
-                    <h4 className="font-medium text-blue-900 mb-4">Need Help?</h4>
-                    <p className="text-sm text-blue-700 mb-4">
+                    <h4 className="font-medium text-blue-900 mb-3 sm:mb-4 text-sm sm:text-base">Need Help?</h4>
+                    <p className="text-xs sm:text-sm text-blue-700 mb-3 sm:mb-4">
                       If you have any questions about your order, please contact us:
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-blue-700">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-xs sm:text-sm text-blue-700">
                       <div className="flex items-center justify-center gap-2">
-                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <MapPin className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                         <div className="text-center">
                           <p className="font-medium">Address</p>
                           <p>ADB road near pragati engineering college</p>
@@ -280,14 +259,14 @@ const TrackOrder = () => {
                         </div>
                       </div>
                       <div className="flex items-center justify-center gap-2">
-                        <Phone className="h-4 w-4 flex-shrink-0" />
+                        <Phone className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                         <div>
                           <p className="font-medium">Phone</p>
                           <p>+91 6301526803</p>
                         </div>
                       </div>
                       <div className="flex items-center justify-center gap-2">
-                        <Mail className="h-4 w-4 flex-shrink-0" />
+                        <Mail className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                         <div>
                           <p className="font-medium">Email</p>
                           <p className="break-all">aishwaryaxerox1999@gmail.com</p>
