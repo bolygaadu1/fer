@@ -1,40 +1,22 @@
-
 /**
- * File Storage Service
+ * File Storage Service - Using hosting file system
  * 
- * This service provides utilities for handling file uploads and downloads.
- * In a real production environment, this would interface with a server-side 
- * storage system or cloud storage solution.
+ * This service handles file uploads to the hosting service's /uploads folder
  */
 
-// Define interfaces for file handling
 export interface StoredFile {
   name: string;
   size: number;
   type: string;
   path: string;
-  data?: File | Blob;
+  url?: string;
 }
 
-// Create a class to handle file storage
 class FileStorageService {
   private static instance: FileStorageService;
-  private filesMap: Map<string, StoredFile> = new Map();
+  private static readonly API_BASE = '/api';
   
-  private constructor() {
-    // Initialize with any existing files from localStorage
-    try {
-      const savedFiles = localStorage.getItem('xeroxStoredFiles');
-      if (savedFiles) {
-        const filesData = JSON.parse(savedFiles);
-        filesData.forEach((file: StoredFile) => {
-          this.filesMap.set(file.path, file);
-        });
-      }
-    } catch (error) {
-      console.error('Error loading stored files:', error);
-    }
-  }
+  private constructor() {}
   
   public static getInstance(): FileStorageService {
     if (!FileStorageService.instance) {
@@ -43,94 +25,90 @@ class FileStorageService {
     return FileStorageService.instance;
   }
   
-  // Save a file to "storage"
-  public saveFile(file: File): Promise<StoredFile> {
-    return new Promise((resolve, reject) => {
-      try {
-        const filePath = `/uploads/${file.name}`;
-        const storedFile: StoredFile = {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          path: filePath,
-          data: file
-        };
-        
-        this.filesMap.set(filePath, storedFile);
-        this.persistToLocalStorage();
-        
-        resolve(storedFile);
-      } catch (error) {
-        reject(error);
+  // Upload file to hosting service
+  public async saveFile(file: File): Promise<StoredFile> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${FileStorageService.API_BASE}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload file');
       }
-    });
+
+      const result = await response.json();
+      
+      const storedFile: StoredFile = {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        path: result.path,
+        url: result.url
+      };
+      
+      return storedFile;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
   }
   
-  // Get a file by path
-  public getFile(path: string): StoredFile | undefined {
-    if (!path) {
-      console.error('Attempted to get file with undefined path');
-      return undefined;
-    }
-    
-    const file = this.filesMap.get(path);
-    
-    if (!file) {
-      console.log('File not found:', path);
-      console.log('Available files:', Array.from(this.filesMap.keys()));
+  // Get file info by path
+  public async getFile(path: string): Promise<StoredFile | null> {
+    try {
+      const response = await fetch(`${FileStorageService.API_BASE}/files${path}`);
       
-      // Try to find by name as fallback
-      const fileName = path.split('/').pop();
-      if (fileName) {
-        for (const [, storedFile] of this.filesMap) {
-          if (storedFile.name === fileName) {
-            console.log(`Found file by name instead: ${fileName}`);
-            return storedFile;
-          }
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
         }
+        throw new Error('Failed to get file info');
       }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting file:', error);
+      return null;
     }
-    
-    return file;
   }
   
   // Get all stored files
-  public getAllFiles(): StoredFile[] {
-    return Array.from(this.filesMap.values());
+  public async getAllFiles(): Promise<StoredFile[]> {
+    try {
+      const response = await fetch(`${FileStorageService.API_BASE}/files`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to get files list');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting files list:', error);
+      return [];
+    }
   }
   
   // Clear all stored files
-  public clearAllFiles(): void {
-    this.filesMap.clear();
-    this.persistToLocalStorage();
-  }
-  
-  // Save current state to localStorage
-  private persistToLocalStorage(): void {
+  public async clearAllFiles(): Promise<boolean> {
     try {
-      // We don't store the actual file data in localStorage, just the metadata
-      const filesForStorage = Array.from(this.filesMap.values()).map(file => {
-        const { data, ...fileWithoutData } = file;
-        return fileWithoutData;
+      const response = await fetch(`${FileStorageService.API_BASE}/files`, {
+        method: 'DELETE'
       });
-      
-      localStorage.setItem('xeroxStoredFiles', JSON.stringify(filesForStorage));
+
+      return response.ok;
     } catch (error) {
-      console.error('Error saving files to localStorage:', error);
+      console.error('Error clearing files:', error);
+      return false;
     }
   }
   
   // Create a download URL for a file
-  public createDownloadUrl(file: StoredFile): string | null {
-    try {
-      if (file.data) {
-        return URL.createObjectURL(file.data);
-      }
-      return null;
-    } catch (error) {
-      console.error('Error creating download URL:', error);
-      return null;
-    }
+  public createDownloadUrl(file: StoredFile): string {
+    return file.url || `/uploads/${file.name}`;
   }
 }
 

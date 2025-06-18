@@ -1,6 +1,5 @@
-// Local Storage Order Service
-// Note: localStorage is browser-specific and cannot be shared between different users/devices
-// For shared data, you would need a database solution like Supabase
+// Server-side Order Service using hosting file system
+// This will store data in the hosting service's file system instead of localStorage
 
 export interface Order {
   id?: string
@@ -30,7 +29,7 @@ export interface Order {
 }
 
 export class OrderService {
-  private static readonly STORAGE_KEY = 'xeroxOrders'
+  private static readonly API_BASE = '/api'
 
   // Create a new order
   static async createOrder(orderData: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>): Promise<Order | null> {
@@ -42,42 +41,57 @@ export class OrderService {
         updatedAt: new Date().toISOString()
       }
 
-      const existingOrders = this.getAllOrdersSync()
-      const updatedOrders = [...existingOrders, order]
-      
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedOrders))
-      
-      return order
+      const response = await fetch(`${this.API_BASE}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(order)
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create order')
+      }
+
+      return await response.json()
     } catch (error) {
       console.error('Error creating order:', error)
       return null
     }
   }
 
-  // Get all orders synchronously (for immediate UI updates)
-  static getAllOrdersSync(): Order[] {
+  // Get all orders
+  static async getAllOrders(): Promise<Order[]> {
     try {
-      const ordersJson = localStorage.getItem(this.STORAGE_KEY)
-      if (!ordersJson) return []
+      const response = await fetch(`${this.API_BASE}/orders`)
       
-      const orders = JSON.parse(ordersJson) as Order[]
-      return orders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
+      if (!response.ok) {
+        throw new Error('Failed to fetch orders')
+      }
+
+      const orders = await response.json()
+      return orders.sort((a: Order, b: Order) => 
+        new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
+      )
     } catch (error) {
       console.error('Error fetching orders:', error)
       return []
     }
   }
 
-  // Get all orders (async for consistency with API pattern)
-  static async getAllOrders(): Promise<Order[]> {
-    return this.getAllOrdersSync()
-  }
-
   // Get order by order ID
   static async getOrderById(orderId: string): Promise<Order | null> {
     try {
-      const orders = this.getAllOrdersSync()
-      return orders.find(order => order.orderId === orderId) || null
+      const response = await fetch(`${this.API_BASE}/orders/${orderId}`)
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null
+        }
+        throw new Error('Failed to fetch order')
+      }
+
+      return await response.json()
     } catch (error) {
       console.error('Error fetching order:', error)
       return null
@@ -87,21 +101,15 @@ export class OrderService {
   // Update order status
   static async updateOrderStatus(orderId: string, status: string): Promise<boolean> {
     try {
-      const orders = this.getAllOrdersSync()
-      const orderIndex = orders.findIndex(order => order.orderId === orderId)
-      
-      if (orderIndex === -1) {
-        return false
-      }
+      const response = await fetch(`${this.API_BASE}/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status })
+      })
 
-      orders[orderIndex] = {
-        ...orders[orderIndex],
-        status,
-        updatedAt: new Date().toISOString()
-      }
-
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(orders))
-      return true
+      return response.ok
     } catch (error) {
       console.error('Error updating order status:', error)
       return false
@@ -111,8 +119,11 @@ export class OrderService {
   // Delete all orders
   static async deleteAllOrders(): Promise<boolean> {
     try {
-      localStorage.removeItem(this.STORAGE_KEY)
-      return true
+      const response = await fetch(`${this.API_BASE}/orders`, {
+        method: 'DELETE'
+      })
+
+      return response.ok
     } catch (error) {
       console.error('Error deleting orders:', error)
       return false
@@ -122,35 +133,16 @@ export class OrderService {
   // Get orders count by status
   static async getOrdersCountByStatus(): Promise<Record<string, number>> {
     try {
-      const orders = this.getAllOrdersSync()
-      const counts: Record<string, number> = {}
+      const response = await fetch(`${this.API_BASE}/orders/stats`)
       
-      orders.forEach(order => {
-        counts[order.status] = (counts[order.status] || 0) + 1
-      })
+      if (!response.ok) {
+        throw new Error('Failed to fetch order stats')
+      }
 
-      return counts
+      return await response.json()
     } catch (error) {
       console.error('Error fetching order counts:', error)
       return {}
-    }
-  }
-
-  // Export orders (for backup/sharing)
-  static exportOrders(): string {
-    const orders = this.getAllOrdersSync()
-    return JSON.stringify(orders, null, 2)
-  }
-
-  // Import orders (for backup/sharing)
-  static importOrders(ordersJson: string): boolean {
-    try {
-      const orders = JSON.parse(ordersJson) as Order[]
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(orders))
-      return true
-    } catch (error) {
-      console.error('Error importing orders:', error)
-      return false
     }
   }
 }

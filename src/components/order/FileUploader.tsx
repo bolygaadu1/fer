@@ -18,11 +18,13 @@ interface FileUploaderProps {
 
 const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: FileUploaderProps) => {
   const [files, setFiles] = useState<File[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<StoredFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -68,41 +70,63 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
     });
     
     if (validFiles.length > 0) {
-      for (const file of validFiles) {
-        try {
-          await fileStorage.saveFile(file);
-          
-          if (file.type === 'application/pdf') {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-              const typedarray = new Uint8Array(e.target?.result as ArrayBuffer);
-              const pdf = await pdfjs.getDocument(typedarray).promise;
-              onPageCountChange(pdf.numPages);
-              onPageRangeChange(`1-${pdf.numPages}`);
-            };
-            reader.readAsArrayBuffer(file);
-          } else {
-            const pageCount = Math.floor(Math.random() * 20) + 1;
-            onPageCountChange(pageCount);
-            onPageRangeChange(`1-${pageCount}`);
-          }
-          
-        } catch (error) {
-          console.error('Error storing file:', error);
-          toast.error(`Failed to store ${file.name}`);
-        }
-      }
+      setUploading(true);
       
-      const updatedFiles = [...files, ...validFiles];
-      setFiles(updatedFiles);
-      onFilesChange(updatedFiles);
-      toast.success(`${validFiles.length} file(s) added`);
+      try {
+        const uploadPromises = validFiles.map(async (file) => {
+          try {
+            const storedFile = await fileStorage.saveFile(file);
+            
+            if (file.type === 'application/pdf') {
+              const reader = new FileReader();
+              reader.onload = async (e) => {
+                const typedarray = new Uint8Array(e.target?.result as ArrayBuffer);
+                const pdf = await pdfjs.getDocument(typedarray).promise;
+                onPageCountChange(pdf.numPages);
+                onPageRangeChange(`1-${pdf.numPages}`);
+              };
+              reader.readAsArrayBuffer(file);
+            } else {
+              const pageCount = Math.floor(Math.random() * 20) + 1;
+              onPageCountChange(pageCount);
+              onPageRangeChange(`1-${pageCount}`);
+            }
+            
+            return storedFile;
+          } catch (error) {
+            console.error('Error uploading file:', error);
+            toast.error(`Failed to upload ${file.name}`);
+            return null;
+          }
+        });
+        
+        const uploadedResults = await Promise.all(uploadPromises);
+        const successfulUploads = uploadedResults.filter(result => result !== null) as StoredFile[];
+        
+        if (successfulUploads.length > 0) {
+          const updatedFiles = [...files, ...validFiles];
+          const updatedUploadedFiles = [...uploadedFiles, ...successfulUploads];
+          
+          setFiles(updatedFiles);
+          setUploadedFiles(updatedUploadedFiles);
+          onFilesChange(updatedFiles);
+          toast.success(`${successfulUploads.length} file(s) uploaded successfully`);
+        }
+      } catch (error) {
+        console.error('Upload error:', error);
+        toast.error('Failed to upload files');
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
   const removeFile = (index: number) => {
     const updatedFiles = files.filter((_, i) => i !== index);
+    const updatedUploadedFiles = uploadedFiles.filter((_, i) => i !== index);
+    
     setFiles(updatedFiles);
+    setUploadedFiles(updatedUploadedFiles);
     onFilesChange(updatedFiles);
     onPageCountChange(0);
     onPageRangeChange('all');
@@ -146,11 +170,11 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
   return (
     <div className="space-y-4">
       <div 
-        className={`file-drop-area ${isDragging ? 'file-drop-active' : ''}`}
+        className={`file-drop-area ${isDragging ? 'file-drop-active' : ''} ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={openFileDialog}
+        onClick={!uploading ? openFileDialog : undefined}
       >
         <input 
           type="file" 
@@ -159,40 +183,44 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
           accept=".pdf,.doc,.docx"
           multiple
           onChange={handleFileChange}
+          disabled={uploading}
         />
-        <Upload className="mx-auto h-12 w-12 text-xerox-500 mb-2" />
-        <p className="text-lg font-semibold text-xerox-700">
-          Drag & Drop Files Here
+        <Upload className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-xerox-500 mb-2" />
+        <p className="text-base sm:text-lg font-semibold text-xerox-700">
+          {uploading ? 'Uploading Files...' : 'Drag & Drop Files Here'}
         </p>
-        <p className="text-gray-500">or click to browse</p>
-        <p className="text-sm text-gray-500 mt-2">
+        <p className="text-gray-500 text-sm sm:text-base">
+          {uploading ? 'Please wait...' : 'or click to browse'}
+        </p>
+        <p className="text-xs sm:text-sm text-gray-500 mt-2">
           Accepted formats: PDF and Word documents only
         </p>
       </div>
 
       {files.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-lg font-medium mb-3">Uploaded Files</h3>
+        <div className="mt-4 sm:mt-6">
+          <h3 className="text-base sm:text-lg font-medium mb-2 sm:mb-3">Uploaded Files</h3>
           <div className="space-y-2 max-h-60 overflow-y-auto">
             {files.map((file, index) => (
               <div key={index} className="file-item">
-                <div className="flex items-center">
-                  <FileText className="h-5 w-5 text-xerox-600 mr-3" />
-                  <div>
-                    <p className="text-sm font-medium truncate max-w-xs">{file.name}</p>
+                <div className="flex items-center min-w-0 flex-1">
+                  <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-xerox-600 mr-2 sm:mr-3 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs sm:text-sm font-medium truncate">{file.name}</p>
                     <p className="text-xs text-gray-500">
                       {(file.size / 1024).toFixed(2)} KB
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-1 sm:gap-2 flex-shrink-0">
                   {file.type === 'application/pdf' && (
                     <Button 
                       variant="ghost" 
                       size="sm" 
                       onClick={(e) => handlePreview(e, file)}
+                      className="p-1 sm:p-2"
                     >
-                      <Eye className="h-4 w-4 text-gray-500" />
+                      <Eye className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500" />
                     </Button>
                   )}
                   <Button 
@@ -202,8 +230,9 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
                       e.stopPropagation();
                       removeFile(index);
                     }}
+                    className="p-1 sm:p-2"
                   >
-                    <X className="h-4 w-4 text-gray-500" />
+                    <X className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500" />
                   </Button>
                 </div>
               </div>
@@ -213,11 +242,11 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
       )}
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl h-[80vh]">
+        <DialogContent className="max-w-4xl h-[80vh] mx-2 sm:mx-auto">
           <DialogHeader>
-            <DialogTitle>PDF Preview</DialogTitle>
+            <DialogTitle className="text-sm sm:text-base">PDF Preview</DialogTitle>
           </DialogHeader>
-          <ScrollArea className="h-full w-full rounded-md border p-4">
+          <ScrollArea className="h-full w-full rounded-md border p-2 sm:p-4">
             {selectedFile && (
               <Document
                 file={selectedFile}
@@ -236,9 +265,9 @@ const FileUploader = ({ onFilesChange, onPageCountChange, onPageRangeChange }: F
                       pageNumber={index + 1}
                       renderTextLayer={false}
                       renderAnnotationLayer={false}
-                      width={600}
+                      width={Math.min(600, window.innerWidth - 100)}
                     />
-                    <p className="text-center text-sm text-gray-500 mt-2">
+                    <p className="text-center text-xs sm:text-sm text-gray-500 mt-2">
                       Page {index + 1} of {numPages}
                     </p>
                   </div>
